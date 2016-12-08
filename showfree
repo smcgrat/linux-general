@@ -11,6 +11,6 @@ totalmem=$(scontrol -o show nodes | awk '{print $15}' | sed 's/^...........//')
 freemem=$(scontrol -o show nodes | awk '{print $17}' | sed 's/^........//')
 usedmem=$(scontrol -o show nodes | awk '{print $16}' | sed 's/^.........//')
 
-echo "$name - $cores cores total, $usedcores in use, $freecores available. $totalmem MB of memory, $usedmem MB in use by slurm, $freemem MB free in queue"
+echo "$name - $cores cores total, $usedcores in use, $freecores available. $totalmem MB of memory, $usedmem MB in use by slurm, $freemem MB available to queue"
 
 exit 0
