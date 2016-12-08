@@ -1,0 +1,16 @@
+cat /usr/local/bin/showfree
+#!/bin/bash
+# source: http://serverfault.com/questions/536681/slurm-how-to-find-out-how-much-memory-is-not-allocated-at-a-given-node
+# Show used & free memory and core resources on a single node with slurm
+
+name=$(hostname -s)
+cores=$(scontrol -o show nodes | awk '{print $6}' | sed 's/^.......//')
+usedcores=$(scontrol -o show nodes | awk '{print $4}' | sed 's/^.........//')
+freecores=$(( cores - usedcores ))
+totalmem=$(scontrol -o show nodes | awk '{print $15}' | sed 's/^...........//')
+freemem=$(scontrol -o show nodes | awk '{print $17}' | sed 's/^........//')
+usedmem=$(scontrol -o show nodes | awk '{print $16}' | sed 's/^.........//')
+
+echo "$name - $cores cores total, $usedcores in use, $freecores available. $totalmem MB of memory, $usedmem MB in use by slurm, $freemem MB free in queue"
+
+exit 0
