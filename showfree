@@ -7,13 +7,13 @@ cores=$(scontrol -o show nodes | awk '{print $6}' | sed 's/^.......//')
 usedcores=$(scontrol -o show nodes | awk '{print $4}' | sed 's/^.........//')
 freecores=$(( cores - usedcores ))
 totalmem=$(scontrol -o show nodes | awk '{print $15}' | sed 's/^...........//')
-freemem=$(scontrol -o show nodes | awk '{print $17}' | sed 's/^........//')
-usedmem=$(scontrol -o show nodes | awk '{print $16}' | sed 's/^.........//')
+qfreemem=$(scontrol -o show nodes | awk '{print $17}' | sed 's/^........//')
+allocmem=$(scontrol -o show nodes | awk '{print $16}' | sed 's/^.........//')
 freemem=$(free -m | grep Mem | awk '{print $4}')
 
 echo "$name Usage details"
 echo "CPU: $cores cores total, $usedcores in use, $freecores available."
-echo "Memory: $totalmem MB total, $freemem MB currently free to OS, $usedmem MB allocated by slurm, queue thinks it has $freemem MB available."
+echo "Memory: $totalmem MB total, $freemem MB currently free to OS, $allocmem MB allocated by slurm"
 echo "Note, memory over allocation may be possible!"
 
 exit 0
