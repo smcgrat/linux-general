@@ -1,0 +1,21 @@
+#!/bin/bash
+# open all the details of a ticket in less
+rt=/opt/rt4/bin/rt
+### envirnoment control
+export RTSERVER=
+if [ -z $RTUSER ]; then
+        read -r -p "Please enter your RT username: " username
+        export RTUSER=$username
+fi
+
+### sanity check
+ticket=$1
+if [ -z $ticket ]
+then
+	echo "There is no ticket number supplied as the 1st arg with this script"
+	exit 0
+fi
+
+$rt show $ticket | less
+
+exit 0

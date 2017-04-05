@@ -1,0 +1,21 @@
+#!/bin/bash
+# get the basic details forn RT ticket
+ticket=$1
+### sanity checking
+if [ -z $ticket ]
+then
+	echo "no ticket supplied as 1st arg for this script. Exiting..."
+	exit 1
+fi
+
+### envirnoment control
+export RTSERVER=
+if [ -z $RTUSER ]; then
+        read -r -p "Please enter your RT username: " username
+        export RTUSER=$username
+fi
+rt=/opt/rt4/bin/rt
+
+$rt ls -l $ticket
+
+exit 0

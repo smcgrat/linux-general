@@ -1,0 +1,35 @@
+#!/bin/bash
+# add a cc or multiple cc's to an RT ticket
+
+### envirnoment control
+export RTSERVER=
+if [ -z $RTUSER ]; then
+        read -r -p "Please enter your RT username: " username
+        export RTUSER=$username
+fi
+ticket=$1
+email=$2
+rt=/opt/rt4/bin/rt
+
+### sanity checks
+# make sure we have a ticket number
+if [ -z $ticket ]
+then
+        echo "no ticket number supplied as the 1st arg for this script. Exiting..."
+        exit 1
+fi
+# make sure we have an email address
+if [ -z $email ]
+then
+        echo "no email address supplied with this script, the 2nd argument should be an email address or multiple email addresses comma seperated. Exiting..."
+        exit 1
+elif [[ $email != *@*  ]]
+then
+        echo "email address string, (2nd arg supplie with script), does not appear to contain a valid email address. Exiting..."
+        exit 1
+fi
+
+# workflow
+$rt edit $ticket set cc=$email
+
+exit 0

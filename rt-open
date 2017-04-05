@@ -1,0 +1,18 @@
+#!/bin/bash
+# add a cc or multiple cc's to an RT ticket
+### envirnoment control
+rt=/opt/rt4/bin/rt
+export RTSERVER=
+if [ -z $RTUSER ]; then
+        read -r -p "Please enter your RT username: " username
+        export RTUSER=$username
+fi
+
+echo "Opening a new ticket in the ops queue"
+
+read -r "Please enter the email address of the requester: " email
+read -r "Please enter the subject line of the new ticket: " subject
+
+$rt create -t ticket set subject="$subject" requestors=$email queue=ops
+
+exit 0

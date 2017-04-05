@@ -1,0 +1,61 @@
+#!/bin/bash
+# update a ticket to add a requestor
+
+### variables & functions
+ticket=$1
+email=$2
+rt=/opt/rt4/bin/rt
+
+### envirnoment control
+
+export RTSERVER=
+
+if [ -z $RTUSER ]; then
+        read -r -p "Please enter your RT username: " username
+        export RTUSER=$username
+fi
+
+function set_requestor {
+	echo "setting requestor for ticket $ticket to $email"
+	#rt edit set $ticket requestors=$email
+	new_requestor=$($rt ls -l $ticket | grep Requestors | awk '{print $2}')
+	echo "new requestor for $ticket = $new_requestor"
+}
+
+### sanity checks
+# make sure we have a ticket number
+if [ -z $ticket ]
+then
+	echo "no ticket number supplied as the 1st arg for this script. Exiting..."
+	exit 1
+fi
+# make sure we have an email address
+if [ -z $email ]
+then
+	echo "no email address supplied with this script, the 2nd argument should be an email address. Exiting..."
+	exit 1
+elif [[ $email != *@*  ]]
+then
+	echo "email address string, (2nd arg supplie with script), does not appear to contain a valid email address. Exiting..."
+	exit 1
+fi
+
+### workflow
+current_requestor=$($rt ls -l $ticket | grep Requestors | awk '{print $2}')
+
+if [ -n $current_requestor ]
+then
+	echo "current requestor(s) for $ticket = $current_requestor"
+	read -p "Over write this? Continue (y/n)? "
+	if [ $REPLY != "y" ]
+	then
+		echo "Exiting without making any changes..."
+		exit 1
+	else
+		set_requestor
+	fi
+else
+	set_requestor
+fi
+
+exit 0
