@@ -17,7 +17,7 @@ fi
 
 function set_requestor {
 	echo "setting requestor for ticket $ticket to $email"
-	#rt edit set $ticket requestors=$email
+	$rt edit ticket/$ticket set requestors=$email
 	new_requestor=$($rt ls -l $ticket | grep Requestors | awk '{print $2}')
 	echo "new requestor for $ticket = $new_requestor"
 }
