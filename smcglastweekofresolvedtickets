@@ -1,0 +1,5 @@
+#!/bin/bash
+export RTSERVER=https://rt.tchpc.tcd.ie
+export RTUSER=smcgrat
+/opt/rt4/bin/rt ls -o +Subject "owner=smcgrat and status=resolved and Resolved>'7 days ago'"
+exit 0
