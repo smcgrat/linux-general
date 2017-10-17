@@ -82,8 +82,25 @@ info() {
 	$rt ls -o +Subject "UpdatedBy=$RTUSER and Updated>'7 days ago'" 
 }
 
+merge() {
+	echo "please enter the ticket number for the ticket to be merged INTO"
+	read -r -p "i.e. the other ticket(s) will be merged into this ticket: " master
+
+	# workflow
+	declare -a tickets=()
+	while IFS= read -r -p "Ticket(s), (1 per line), to be merged into $master, (end with an empty line): " line; do
+		[[ $line ]] || break  # break if line is empty
+		tickets+=("$line")
+	done
+
+	for ticket in "${tickets[@]}"; do
+		    echo "merging $ticket into $master"
+		    $rt merge $ticket $master
+	done
+}
+
 # read the flags & perform actions
-while getopts “r:d:s:l:x:iu:” OPTION
+while getopts “r:d:s:l:x:imu:” OPTION
 do
 	 case $OPTION in
 		 r)
@@ -107,6 +124,9 @@ do
 		     ;;
 		 i)
 			 info
+			 ;;
+		 m)
+			 merge
 			 ;;
 		 u)
 			 usage
