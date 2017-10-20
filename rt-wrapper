@@ -4,7 +4,6 @@
 # add cc: rt edit $ticket set cc=$email
 # add requestor: rt edit ticket/$ticket set requestors=$email
 # check requestor: rt ls -l $ticket | grep Requestors | awk '{print $2}')
-# merge ticket into master ticket: rt merge $ticket $master
 # open new ticket: rt create -t ticket set subject="$subject" requestors=$email queue=ops
 
 # environment setup
@@ -28,8 +27,8 @@ usage() {
 	echo "-l ticket // long ticket status"
 	echo "-u // usage (this message)"
 	echo "-x ticket // delete ticket"
-#	echo ""
-#	echo ""
+	echo "-m // merge tickets"
+	echo "-i // personal RT productivity"
 #	echo ""
 }
 
@@ -49,7 +48,7 @@ status() {
 resolve() {
 	if [ -z "$debug" ]; then # debug var NOT null
 		$rt edit ticket/$ticket_to_resolve set status='resolved'
-		if [ "$?" == "0"]; then
+		if [ "$?" == "0" ]; then
 			echo "$ticket_to_resolve resolved"
 		else
 			echo "$ticket_to_resolve possibly NOT resolved? non zero exit status"
