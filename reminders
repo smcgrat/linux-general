@@ -1,0 +1,39 @@
+#!/bin/bash
+# a simple reminder program to send a brief mail to yourself based on the date
+# to be used with crontab. format of file to create is yyyymmdd
+
+dir=/home/smcgrat/Documents/reminders.d
+today=$(date '+%Y%m%d')
+reminded=/home/smcgrat/Documents/todo/remindedabout.txt
+email=smcgrat@tchpc.tcd.ie,smcgrat@tcd.ie
+
+# if there are flags then we will just do the action of those flags and not send the mail
+for flag in $@; do
+	if [ "$flag" == "-p" ]; then
+		# past reminded about stuff, print it
+		cat $reminded
+	elif [ "$flag" == "-f" ]; then
+		# future things to be reminded about, print them
+		for i in $(ls $dir); do
+			file=$dir/$i
+			echo $i
+			cat $file
+		done
+	fi
+done
+
+if [ -z "$@" ]; then # no flags = send the mail
+	# email the stuff to be reminded about
+	for i in $(ls $dir); do
+		file=$dir/$i
+		if [ "$i" == "$today" ]; then
+			cat $file
+			cat $file | mail -s "Daily reminder for $today" $email
+			echo $today >> $reminded
+			cat $file >> $reminded
+			rm $file
+		fi
+	done
+	fi
+
+exit 0
