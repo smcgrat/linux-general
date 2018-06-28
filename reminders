@@ -2,9 +2,9 @@
 # a simple reminder program to send a brief mail to yourself based on the date
 # to be used with crontab. format of file to create is yyyymmdd
 
-dir=/home/smcgrat/Documents/reminders.d
+dir=/home/smcgrat/home/private/reminders.d
 today=$(date '+%Y%m%d')
-reminded=/home/smcgrat/Documents/todo/remindedabout.txt
+reminded=/home/smcgrat/home/private/todo/remindedabout.txt
 email=smcgrat@tchpc.tcd.ie,smcgrat@tcd.ie
 
 # if there are flags then we will just do the action of those flags and not send the mail
