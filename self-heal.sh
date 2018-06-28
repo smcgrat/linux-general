@@ -2,6 +2,7 @@
 # Script to automate the usual things the admins do when a node is down
 # like login and run the cluster-tests or do an ipmi reset
 # run by cron maybe to do so autmoatically
+# documented: http://wiki.tchpc.tcd.ie/doku.php?id=self-healing-script
 
 # Usage Notes
 # -----------
@@ -11,7 +12,7 @@
 # use -m to stop the script sending email summaries
 
 # Author
-# Sean McGrath, Trinity Centre for High Performance and Research computing
+# Sean McGrath, Trinity Centre for High Performance and Research computing, smcgrat@tchpc.tcd.ie
 
 # To do
 # -----
@@ -23,6 +24,7 @@
 # SH:powercycled - i.e. node reset with ipmi power
 # SH:clustertests - actually, I think this will be short lived as the other script that does the cluster tests changes sinfo for the node also
 # SH:ECCmemory - node with ECC memory errors
+# SH:ATADiskErrors - node with ATA Disk Errors
 # SH:quorumnotresponding - no ping ipmi, etc
 # SH:OOMquorumnode - oom'd quorum
 # SH:quorumHWerror - quorum node reporting hardware errors
@@ -52,8 +54,17 @@ for flag in $@; do
 		nopowercylce=yes
 	elif [ "$flag" == "-m" ]; then
 		noemailsummary=yes
+	elif [ "$flag" == "-f" ]; then
+		overridelimit=yes
 	fi
 done
+
+if [ "$overridelimit" == "yes" ]; then
+	dryrunmode=off
+	echo "-f flag specified. dry run disabled"
+	echo "-f over rides -d and completely disables dry run"
+	echo "even for the maximum limit of nodes"
+fi
 
 # arrays
 declare -a nodes_with_problems
@@ -93,7 +104,7 @@ function pingcheck {
 
 function sshcheck {
 	local node=$1
-	sshcontactable=$(/usr/bin/ssh $node uptime | grep -i "load average")
+	sshcontactable=$(/usr/bin/ssh -o ConnectTimeout=10 $node uptime | grep -i "load average")
 	if [ -z "$sshcontactable" ]
 	then
 		sshconnection=down
@@ -105,39 +116,46 @@ function sshcheck {
 function ipmi {
 	local node=$1
 	local action=$2
+
 	# the ipmitool usage is a bit different between the clusters so need to set variables for the different versions
-	if [ "$cluster" == "lonsdale" ]; then
-		ipmicommand="/usr/bin/ipmitool -I lanplus -H $node.ipmi -U ADMIN -f /root/ipmipass power "
-	elif [ "$cluster" == "kelvin" ]; then
-		ipmicommand="/usr/bin/ipmitool -I lanplus -H $node.ipmi -U root -f /root/ipmipass power "
-	elif [ "$cluster" == "parsons" ]; then
-		ipmicommand="/usr/bin/ipmitool -I lanplus -H $node.ipmi -U ADMIN -f /root/ipmipass power ; /usr/bin/ipmitool -I lanplus -H $node.ipmi -U ADMIN -f ~/ipmipass power "
-		# parsons needs the ipmitool command run on it twice quite often
-	else
-		echo "cluster: $cluster not a recognised cluster for this script, expecting either lonsdale, kelvin or parsons"
-		echo "did we get a new cluster? cool... :-) "
-	fi
+	case "$cluster" in
+		lonsdale)
+			ipmicommand="/usr/bin/ipmitool -I lanplus -H $node.ipmi -U ADMIN -f /root/ipmipass power "
+			;;
+		kelvin)
+			ipmicommand="/usr/bin/ipmitool -I lanplus -H $node.ipmi -U root -f /root/ipmipass power "
+			;;
+		parsons)
+			ipmicommand="/usr/bin/ipmitool -I lanplus -H $node.ipmi -U ADMIN -f /root/ipmipass power status ; /usr/bin/ipmitool -I lanplus -H $node.ipmi -U ADMIN -f ~/ipmipass power "
+			# parsons needs the ipmitool command run on it twice quite often (prefix with 'power status', then run the actual command)
+			;;
+		*)
+			echo "cluster: $cluster not a recognised cluster for this script, expecting either lonsdale, kelvin or parsons"
+			echo "did we get a new cluster? cool... :-) "
+			return 1
+	esac
+
 	# only want the ipmi command to be: on off reset or status 
-	if [ "$action" == "off" ]; then
-		eval $ipmicommand $action
-	elif [ "$action" == "reset" ]; then
-		eval $ipmicommand $action
-	elif [ "$action" == "on" ]; then   
-		eval $ipmicommand $action
-	elif [ "$action" == "status" ]; then
-		eval $ipmicommand $action
-	elif [ "$action" == "getstatus" ]; then
-		ipmicheck=$(eval $ipmicommand status | awk '{print $NF}') # special case to get the status of the machine
-		if [ "$ipmicheck" == "on" ]; then
-			ipmistatus=on
-		elif [ "$ipmicheck" == "off" ]; then
-			ipmistatus=off
-		else
-			ipmistatus=unknown
-		fi
-	else
-		echo "unexpected ipmitool command: $action supplied, expecting 1 of on off status or reset only"
-	fi
+	case "$action" in
+		off|reset|on|status)
+			eval $ipmicommand $action
+			;;
+		getstatus)
+			ipmicheck=$(eval $ipmicommand status | awk '{print $NF}') # special case to get the status of the machine
+
+			case "$ipmicheck" in
+				on|off)
+					ipmistatus=$ipmicheck
+					;;
+				*)
+					ipmistatus=unknown
+					;;
+			esac
+			;;
+		*)
+			echo "unexpected ipmitool command: $action supplied, expecting 1 of on off status or reset only"
+			return 1
+	esac
 }
 
 function ipmicycle {
@@ -154,9 +172,9 @@ function ipmicycle {
 	elif [ "$quorumnode"  == "yes" ]; then 
 		# 20150310, Sean, changed scripts behaviour to power cycle quorum nodes with ipmi
 		# if they're not responding to ping/ssh then they're probably not active members of the quorum so safe to work on
-		echo "$node is a member of the quorum, double checking it's mmgetstate status"
+		echo "$node is a member of the quorum, double checking its mmgetstate status"
 		# this is a quorum node so lets double check to make sure that gpfs isn't active on it
-		gpfsstate=$(mmgetstate -N $node | grep active | awk '{print $3}') # should = active if gpfs is active on the quorum node
+		gpfsstate=$(/usr/lpp/mmfs/bin/mmgetstate -N $node -Y | tail -1 | cut -d: -f9) # should = active if gpfs is active on the quorum node
 		echo "$node mmgetstate status is showing: $gpfsstate"
 		if [ "$gpfsstate" == "active" ]; then
 			local oktoipmicyclenode=no
@@ -165,6 +183,7 @@ function ipmicycle {
 			operation="$operation quorum node not IPMI power cycled because gpfs state $gpfsstate - "
 		else
 			echo "$node has gpfs state of $gpfsstate, power cycling with IPMI"
+			local oktoipmicyclenode=yes
 		fi
 	elif [ -n "$already_powercycled" ]; then  # this will be null if the node hasn't been power cycled before
 		local oktoipmicyclenode=no
@@ -181,24 +200,28 @@ function ipmicycle {
 	if [ "$oktoipmicyclenode" == "yes" ]; then
 		echo "$node - OK to be power cycled with IPMI, doing so"
 		#ipmi $node off # commenting out to try to improve this functionality, seems the off stops it working maybe
-		#sleep 3
+		#sleep 10
 		ipmi $node on
-		sleep 3
+		sleep 10
 		ipmi $node reset
-		sleep 3
+		sleep 10
 		recordipmicycle $node
 		ipmistatus=()
 		ipmi $node getstatus
-		if [ "$ipmistatus" == "off" ]; then
-			echo "$node won't power on with ipmi, updating it in sinfo"
-			supdate $node drain "SH:wontpoweron"
-		elif [ "$ipmistatus" == "on" ]; then
-			echo "$node - power cycled with ipmi"
-			supdate $node drain "SH:powercycled"
-		else
-			echo "$node - ipmi status is unknown and needs manual intervention"
-			supdate $node drain "SH:wontpoweron"
-		fi
+
+		case "$ipmistatus" in
+			off)
+				echo "$node won't power on with ipmi, updating it in sinfo"
+				supdate $node drain "SH:wontpoweron"
+				;;
+			on)
+				echo "$node - power cycled with ipmi"
+				supdate $node drain "SH:powercycled"
+				;;
+			*)
+				echo "$node - ipmi status is unknown and needs manual intervention"
+				supdate $node drain "SH:wontpoweron"
+		esac
 		operation="$operation ipmi power cycled node - "
 	else
 		echo "$node - not power cycled for above reason"
@@ -221,7 +244,7 @@ function supdate {
 function get_sinfo_state { # need this to make sure we don't reboot a node that is draining
 	local node=$1
 	full_sinfo_state=$(/usr/bin/sinfo -Rl --nodes=$node | grep $node)
-	echo "$node -  checking sinfo, here is it's state"
+	echo "$node -  checking sinfo, here is its state"
 	echo "$full_sinfo_state"
 	draining_state=$(/usr/bin/sinfo -n $node | grep $node | awk '{print $5}')
 	draining_check=$(echo $draining_state | grep drng) # this variable will not be null if node marked as drng
@@ -235,6 +258,7 @@ function get_sinfo_state { # need this to make sure we don't reboot a node that 
 	# check to see if the node has health check or epilog related errors
 	hc_epilog_error=$(echo $full_sinfo_state | grep 'HC:\|ERR:')
 	ecc_error=$(echo $full_sinfo_state | grep 'ECC') # if a node has ECC memory errors no point in running cluster tests etc on it
+	ata_error=$(echo $full_sinfo_state | grep 'ATA Disk Error') # if a node has ATA Disk Errors no point in running cluster tests etc on it
 	already_powercycled=$(echo $full_sinfo_state | grep 'SH:powercycled')
 }
 
@@ -288,8 +312,11 @@ function restartnode {
 	if [ "$dryrunmode" != "on" ]; then
 		# make sure that a quorum node isn't being rebooted
 		if [ "$quorumnode" == "no" ]; then # this is not a member of the quorum, safe to reboot
-			supdate $node idle
-			/usr/bin/ssh $node /sbin/reboot
+			#supdate $node idle # a job could start if we set to idle
+			#/usr/bin/ssh $node /sbin/reboot
+			# Warning here: 'scontrol reboot_nodes' will only work if the node is IDLE or DRAINED.
+			# In particular, it won't work if the node is DOWN or if the slurm daemon is not running.
+			/usr/bin/scontrol reboot_nodes $node
 			echo "$node rebooting"
 			operation="$operation node rebooted - "
 		else # quorum node
@@ -390,17 +417,7 @@ nodes_powercycled_by_sh=($(/usr/bin/sinfo -Rl | grep 'SH:powercycled' | awk '{pr
 nodes_error_prolog=($(/usr/bin/sinfo -Rl | grep 'error prolog' | awk '{print $NF}'))
 nodes_unexpected_reboot=($(/usr/bin/sinfo -Rl | grep 'Node unexpectedly re' | awk '{print $NF}'))
 nodes_with_problems=( ${nodes_down_with_HC_errors[@]} ${nodes_not_responding[@]} ${nodes_with_epilog_errors[@]} ${nodes_error_prolog[@]} ${nodes_powercycled_by_sh[@]} ${nodes_unexpected_reboot[@]}) # combine the relevant arrays of down nodes
-
-# while this is in development we don't want to work on too many nodes simultaneously
-# so if this is lonsdale and we have more than 8 nodes in the array of problematic nodes we will default to dry run mode to be safe
-
-limit=40
-if [ "$cluster" == "lonsdale" ]; then
-	if [ "${#nodes_with_problems[@]}" -gt "$limit" ]; then
-		echo "more than $limit nodes in $cluster down, defaulting to dry run mode to be safe"
-		dryrunmode=on
-	fi
-fi
+nodes_that_need_cluster_tests_run=($(/usr/bin/sinfo -Rl | grep 'doautotest' | awk '{print $NF}')) # if the node is set as doautotest in slurm then run the cluster tests on it
 
 if [ -n "$nodes_with_problems" ]; then # if there are nodes detected with relevant problems this array will not be empty
 	# clean up the array to remove any entries with multiple nodes like parsons-n[111,121,123] and get the single entries in that node
@@ -422,6 +439,31 @@ if [ -n "$nodes_with_problems" ]; then # if there are nodes detected with releva
 else
 	echo "No nodes with problems relevant to this script detected in sinfo"
 fi
+
+# move this after the node expansion
+# dont want to work on too many nodes simultaneously, 
+# i.e. scenario of cooling failure over the weekend
+# nodes get shut down but then started again by self heal
+
+# automatically set the limit to be 1/3 of the total node count, rather than hard limit
+#limit=40
+fraction_of_nodes=3
+total_nodes=$(sinfo -o %D -h)
+limit=$(echo "$total_nodes / $fraction_of_nodes" | bc)
+if [ -z "$limit" ]
+then
+	limit=40
+	echo "error getting total node count via sinfo; manually setting limit=$limit instead"
+fi
+
+#if [ "$cluster" == "lonsdale" ]; then # changing this to apply to all clusters and not just lonsdale now
+if [ "$overridelimit" != "yes" ]; then # this over rides the dry run option, if -f is specified dry run is disabled in all circumstances
+	if [ "${#nodes_with_problems[@]}" -gt "$limit" ]; then
+		echo "more than $limit nodes in $cluster down, defaulting to dry run mode to be safe"
+		dryrunmode=on
+	fi
+fi
+#fi
 
 # setup the summary log
 echo "Short summary of what has been done by the self_heal script" >> $operationlog
@@ -456,7 +498,7 @@ for node in "${nodes_with_problems[@]}"; do
 	operation=() # clear this variable so it can be populated from fresh
 	# check to see if node is draining, don't do anything to it if it is, don't want to reboot a node or something while it is draining
 	if [ "$is_node_draining" == "yes" ]; then
-		# node is draining, don't want to act on it
+		# node is draining, dont want to act on it
 		echo "$node is draining in sinfo - not taking any action on this node"
 		nodes_that_are_draining=("${nodes_that_are_draining[@]}" "$node") # update the list of such nodes
 		operation="$operation draining in sinfo, not taking any action - "
@@ -464,6 +506,10 @@ for node in "${nodes_with_problems[@]}"; do
 		echo "$node - reporting ECC Memory errors and should be dealt with accordingly"
 		supdate $node drain "SH:ECCmemory"
 		operation="$operation ECC memory errors detected - "
+	elif [ -n "$ata_error" ]; then # this var will not be null if there are ATA disk errors in sinfo for the node
+		echo "$node - reporting ATA Disk Errors errors and should be dealt with accordingly"
+		supdate $node drain "SH:ATADiskErrors"
+		operation="$operation ATA Disk Errors detected - "
 	else # start to test the node to see if it can be brought back to life or whatever as its not draining
 		pingcheck $node
 		if [ "$pingable" == "yes" ] # node is pingable, thus check if ssh connection works then
@@ -475,58 +521,65 @@ for node in "${nodes_with_problems[@]}"; do
 				echo "$node is contactable via ssh"
 				echo "running /root/node_check.sh on $node"
 				nodecheck $node
-				if [ "$node_state" == "OK" ]; then
-					echo "$node passed /root/node_check.sh"
-					# just because a node passes the node_check doesn't mean that it is not problematic though
-					# e.g. some hardware related errors marked in sinfo by the epilog may no longer be in dmesg on the node if it has rebooted
-					# firstly lets see why it was marked down in slurm, the $full_sinfo_state var
-					echo "checking for epilog & health check related errors: "
-					if [ -n "$hc_epilog_error" ]; then # var will not be null if it has health check or epilog errors  
-						echo "$node has the following status in slurm, probably marked by the epilog or health check scripts"
-						echo "$full_sinfo_state "
-						echo "should run cluster tests on it if its not a quorum node, excpet if the errors are ECC memory related"
-						if [ "$quorumnode" == "no" ]; then # checking to see if this is a quorum node
-							echo "$node is not a quorum node, adding it to the list of nodes to have the cluster tests run on them"
-							nodes_that_need_cluster_tests_run=("${nodes_that_need_cluster_tests_run[@]}" ""$node)
-							operation="$operation node marked for cluster tests - "
-					else
-						echo "$node is a quorum node and the epilog has reported hardware related errors on it"
-						echo "$node needs the cluster-tests run on it but not while it is in the GPFS quorum"
-						echo "updating sinfo"
-						supdate $node drain "SH:quorumHWerror"
-					fi
-				else
-					echo "should be ok to mark the node as available in sinfo so, no hardware related problems reported in slurm for this node"
-					supdate $node idle
-					operation="$operation node returned to service - "
-				fi
-			elif [ "$node_state" == "restartservicesonnode" ]; then
-				echo "node_state before restart of services = $node_state"
-				restartservices $node
-				echo "node_state after restart of services = $node_state"
-				if [ "$node_state" != "OK" ]; then # node has failed node_check again, (re-run by restartservices function), should probably run cluster tests
-					echo "$node - cluster_tests.sh failed for a second time"
-					cluster_test_this_node=yes # set variable to mark this node to have the cluster tests run on it
-				
-else
-						echo "$node - passed node_check on second attempt, updating sinfo to return it to service"
-						supdate $node idle
-					fi
-				elif [ "$node_state" == "restartthenode" ]; then # node has OOM'd and should be restarted unless it is a quorum node
-					echo "$node has OOM'd and needs to be restarted unless it is a quorum node"
-					supdate $node idle
-					restartnode $node # restartnode won't restart quorum nodes
-				else # node_check has failed, possibly for hardware, mark the node for the cluster testing
-					echo "$node - needs cluster tests run on it"
-					cluster_test_this_node=yes # set variable to mark this node to have the cluster tests run on it
-				fi
+
+				case "$node_state" in
+					OK)
+						echo "$node passed /root/node_check.sh"
+						# just because a node passes the node_check doesnt mean that it is not problematic though
+						# e.g. some hardware related errors marked in sinfo by the epilog may no longer be in dmesg on the node if it has rebooted
+						# firstly lets see why it was marked down in slurm, the $full_sinfo_state var
+						echo "checking for epilog & health check related errors: "
+						if [ -n "$hc_epilog_error" ]; then # var will not be null if it has health check or epilog errors  
+							echo "$node has the following status in slurm, probably marked by the epilog or health check scripts"
+							echo "$full_sinfo_state "
+							echo "should run cluster tests on it if its not a quorum node, excpet if the errors are ECC memory related"
+							if [ "$quorumnode" == "no" ]; then # checking to see if this is a quorum node
+								echo "$node is not a quorum node, adding it to the list of nodes to have the cluster tests run on them"
+								nodes_that_need_cluster_tests_run=("${nodes_that_need_cluster_tests_run[@]}" ""$node)
+								operation="$operation node marked for cluster tests - "
+							else
+								echo "$node is a quorum node and the epilog has reported hardware related errors on it"
+								echo "$node needs the cluster-tests run on it but not while it is in the GPFS quorum"
+								echo "updating sinfo"
+								supdate $node drain "SH:quorumHWerror"
+							fi
+						else
+							echo "should be ok to mark the node as available in sinfo so, no hardware related problems reported in slurm for this node"
+							supdate $node idle
+							operation="$operation node returned to service - "
+						fi
+						;;
+					restartservicesonnode)
+						echo "node_state before restart of services = $node_state"
+						restartservices $node
+						echo "node_state after restart of services = $node_state"
+						if [ "$node_state" != "OK" ]; then # node has failed node_check again, (re-run by restartservices function), should probably run cluster tests
+							echo "$node - cluster_tests.sh failed for a second time"
+							cluster_test_this_node=yes # set variable to mark this node to have the cluster tests run on it
+						else
+							echo "$node - passed node_check on second attempt, updating sinfo to return it to service"
+							supdate $node idle
+						fi
+						;;
+					restartthenode)
+						# node has OOMd and should be restarted unless it is a quorum node
+						echo "$node has OOM'd and needs to be restarted unless it is a quorum node"
+						#supdate $node idle # a job could start if we set to idle
+						restartnode $node # restartnode wont restart quorum nodes
+						;;
+					*)
+						 # node_check has failed, possibly for hardware, mark the node for the cluster testing
+						echo "$node - needs cluster tests run on it"
+						cluster_test_this_node=yes # set variable to mark this node to have the cluster tests run on it
+				esac
+
 				# now check to see if the node needs the cluster tests run on it
 				if [ "$cluster_test_this_node" == "yes" ]; then # this node needs cluster tests run on it
-					# now check to make sure it is not a quorum node, shouldn't run cluster tests on those
+					# now check to make sure it is not a quorum node, shouldnt run cluster tests on those
 					if [ "$quorumnode" == "no" ]; then # not a quorum node and safe to run the tests
 						echo "$node needs cluster tests run on it, $node not a quorum node, updating sinfo"
 						nodes_that_need_cluster_tests_run=("${nodes_that_need_cluster_tests_run[@]}" "$node") # add this node to the array of nodes that the cluster tests run on it
-						supdate $node down "SH:clustertests"
+						supdate $node drain "SH:clustertests"
 						operation="$operation running cluster tests on node - "
 					else # is a quorum node and unsafe to run the tests
 						echo "$node is a quorum node - don't run the cluster-tests on it, marking it in sinfo"
@@ -542,23 +595,28 @@ else
 			echo "$node is not pingable"
 			contactable=no
 		fi
-		# if the node isn't contactable, ssh/ipmi failures, then reset it to try to bring it back up
+		# if the node isnt contactable, ssh/ipmi failures, then reset it to try to bring it back up
 			if [ "$contactable" == "no" ]; then
 				echo "$node is not contactable with ping/ssh, checking the ipmi status of the node"
 				ipmi $node getstatus
 				echo "ipmi status for $node is $ipmistatus"
-				if [ "$ipmistatus" == "off" ]; then
-					ipmicycle $node # power cycle the node with ipmi
-				elif [ "$ipmistatus" == "on" ]; then
-					echo "$node is not contacable by ping/ssh but has a power status of on with ipmi"
-					echo "reseting it with ipmi to see if it will come back and the next running of this script can pick it up"
-					ipmicycle $node # power cycle the node with ipmi
-				else # ipmi has an unknow status, probably can't communicate with it, all we can really do is double check update sinfo to say so
-					echo "$node ipmi status = $ipmistatus"
-					supdate $node drain "SH:communicationproblems"
-					operation="$operation can't communicate with node - "
-					echo "can't communicate with $node with either ping or ipmi, updating sinfo with this"
-				fi
+
+				case "$ipmistatus" in
+					off)
+						ipmicycle $node # power cycle the node with ipmi
+						;;
+					on)
+						echo "$node is not contacable by ping/ssh but has a power status of on with ipmi"
+						echo "reseting it with ipmi to see if it will come back and the next running of this script can pick it up"
+						ipmicycle $node # power cycle the node with ipmi
+						;;
+					*)
+						# ipmi has an unknow status, probably cant communicate with it, all we can really do is double check update sinfo to say so
+						echo "$node ipmi status = $ipmistatus"
+						supdate $node drain "SH:communicationproblems"
+						operation="$operation can't communicate with node - "
+						echo "can't communicate with $node with either ping or ipmi, updating sinfo with this"
+				esac
 			fi
 	fi
 	echo ""
@@ -573,15 +631,15 @@ done
 if [ -n "$nodes_that_need_cluster_tests_run" ]; then # make sure array is not empty before doing this
 	echo "Here are the nodes that need the cluster-tests run on them"
 	echo ""
-	# first make sure that the entries in the array are unique so we don't get multiple ones
+	# first make sure that the entries in the array are unique so we dont get multiple ones
 	nodes_that_need_cluster_tests_run=$(echo $nodes_that_need_cluster_tests_run | tr ' ' '\n' | sort -nu)
 	for node in "${nodes_that_need_cluster_tests_run[@]}"; do
 		echo "$node"
 		if [ "$dryrunmode" != "on" ]; then
 			/usr/bin/ssh $node /home/support/root/cluster-tools/scripts/node-test.sh -f &
-				# the f flag forces the tests even if the node_check is reporting problems
-				# node-test.sh will error if there is anything other than slurm problematic without the f flag
-		recordclustertests $node # keep a record of what nodes have the cluster test run on them so we can see how often they each get tested
+			# the f flag forces the tests even if the node_check is reporting problems
+			# node-test.sh will error if there is anything other than slurm problematic without the f flag
+			recordclustertests $node # keep a record of what nodes have the cluster test run on them so we can see how often they each get tested
 		else
 			echo "dry run mode has been invoked, will not be running cluster tests on this node"
 		fi
