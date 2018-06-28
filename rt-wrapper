@@ -63,7 +63,7 @@ resolve() {
 delete() {
 	if [ -z "$debug" ]; then # debug var NOT null
 		$rt edit ticket/$ticket_to_delete set status='deleted'
-		if [ "$?" == "0"]; then
+		if [ "$?" == "0" ]; then
 			echo "$ticket_to_delete deleted"
 		else
 			echo "$ticket_to_delete possibly NOT deleted? non zero exit status"
@@ -74,11 +74,19 @@ delete() {
 }
 
 info() {
-	echo "** Tickets resolved in last 7 days **"
-	$rt ls -o +Subject "owner=$RTUSER and status=resolved and Resolved>'7 days ago'"
+	# first, set the number of days we want to report for
+	if [ -z "$2" ]; then
+		# default to 7 if not specified
+		period=7
+	else
+		period=$2
+	fi
+	echo "period = $period"
+	echo "** Tickets resolved in last $period days **"
+	$rt ls -o +Subject "owner=$RTUSER and status=resolved and Resolved>'$period days ago'"
 	echo ""
-	echo "** Tickets interacted with in last 7 days **"
-	$rt ls -o +Subject "UpdatedBy=$RTUSER and Updated>'7 days ago'" 
+	echo "** Tickets interacted with in last $period days **"
+	$rt ls -o +Subject "UpdatedBy=$RTUSER and Updated>'$period days ago'" 
 }
 
 merge() {
