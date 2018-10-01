@@ -45,8 +45,16 @@ status() {
 	fi
 }
 
+take() {
+	if [[ $($rt show ticket/$ticket_to_resolve -f owner | grep Owner | awk '{print $2}') == "Nobody" ]]; then
+		$rt edit ticket/$ticket_to_resolve set owner="$RTUSER"
+	fi
+}
+
 resolve() {
 	if [ -z "$debug" ]; then # debug var NOT null
+		# check if ticket has not been assigned to anyone, take it for yourself if not
+		take $ticket_to_resolve
 		$rt edit ticket/$ticket_to_resolve set status='resolved'
 		if [ "$?" == "0" ]; then
 			echo "$ticket_to_resolve resolved"
