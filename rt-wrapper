@@ -21,7 +21,8 @@ fi
 # functions
 usage() {
 	echo ""
-	echo "-r ticket // resolve ticket"
+	echo "-r ticket // resolve ticket, waits for incoming updates before doing so"
+	echo "-f ticket // resolve without waiting to allow incoming updates"
 	echo "-d on // debug mode on - no changes made"
 	echo "-s ticket // short ticket status"
 	echo "-l ticket // long ticket status"
@@ -46,15 +47,37 @@ status() {
 }
 
 take() {
-	if [[ $($rt show ticket/$ticket_to_resolve -f owner | grep Owner | awk '{print $2}') == "Nobody" ]]; then
-		$rt edit ticket/$ticket_to_resolve set owner="$RTUSER"
+	if [ -z "$ticket_to_resolve" ]; then 
+		# ticket_to_resolve is null, thus assuming rt being called to specifically take a ticket
+		ticket_to_take=$ticket_to_take
+	else
+		ticket_to_take=$ticket_to_resolve
+	fi
+	echo "Taking $ticket_to_take"
+	# first check to make sure it's not already assigned
+	if [[ $($rt show ticket/$ticket_to_take -f owner | grep Owner | awk '{print $2}') == "Nobody" ]]; then
+		$rt edit ticket/$ticket_to_take set owner="$RTUSER"
+	else
+		echo "Ticket $ticket_to_take is already assigned, not taking it"
 	fi
 }
 
 resolve() {
+	if [ $2 = "-f" ]; then
+		force="yes"
+	fi
 	if [ -z "$debug" ]; then # debug var NOT null
 		# check if ticket has not been assigned to anyone, take it for yourself if not
 		take $ticket_to_resolve
+		# following workflow breaks this:
+		# reply to user -> resolve
+		# because the email arrives in after the resolve action.
+		# thus sleeping to allow time for the email to arrive
+		if [ "$force" != "yes" ]; then
+			waitinterval=30
+			echo "Sleeping for $waitinterval seconds before resolving to prevent updates re-opening"
+			sleep $waitinterval
+		fi
 		$rt edit ticket/$ticket_to_resolve set status='resolved'
 		if [ "$?" == "0" ]; then
 			echo "$ticket_to_resolve resolved"
@@ -85,7 +108,7 @@ info() {
 	# first, set the number of days we want to report for
 	if [ -z "$2" ]; then
 		# default to 7 if not specified
-		period=7
+		period=14
 	else
 		period=$2
 	fi
@@ -115,15 +138,24 @@ merge() {
 }
 
 # read the flags & perform actions
-while getopts “r:d:s:l:x:imu:” OPTION
+while getopts “r:f:dt:s:l:x:im:u” OPTION
 do
 	 case $OPTION in
 		 r)
 			 ticket_to_resolve=$OPTARG
 			resolve $ticket_to_resolve
 			 ;;
+		 f)
+			 ## to use with resolve to prevent sleeping before resolving
+			 ticket_to_resolve=$OPTARG
+			resolve $ticket_to_resolve -f
+			 ;;
 		 d)
 			 debug=$OPTARG
+			 ;;
+		 t)
+			 ticket_to_take=$OPTARG
+			take $ticket_to_take
 			 ;;
 		 s)
 			 ticket_for_short_status=$OPTARG
