@@ -63,9 +63,6 @@ take() {
 }
 
 resolve() {
-	if [ $2 = "-f" ]; then
-		force="yes"
-	fi
 	if [ -z "$debug" ]; then # debug var NOT null
 		# check if ticket has not been assigned to anyone, take it for yourself if not
 		take $ticket_to_resolve
@@ -147,8 +144,9 @@ do
 			 ;;
 		 f)
 			 ## to use with resolve to prevent sleeping before resolving
+			 force="yes"
 			 ticket_to_resolve=$OPTARG
-			resolve $ticket_to_resolve -f
+			resolve $ticket_to_resolve
 			 ;;
 		 d)
 			 debug=$OPTARG
