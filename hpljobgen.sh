@@ -5,17 +5,19 @@ echo "Wrapper for submitting HPL Jobs"
 cat <<EOF
 Creates a specific directory called NxNB
 And writes the HPL.dat & slurm submission script to it.
-Flags, (all are mandatory)
+Flags, (mandatory)
 	-h number of nodes
 	-n N value
 	-b NB value
 	-p P value
 	-q Q value
+Flags, (optional)
+	-t time limit in format 4-00:00:00 days-hours:mins:secs
 EOF
 }
 
 # get the flags
-while getopts "h:n:b:p:q:" OPTION
+while getopts "h:n:b:p:q:t:" OPTION
 do
 	case $OPTION in
 		h)
@@ -32,6 +34,9 @@ do
 			;;
 		q)
 			Q=$OPTARG
+			;;
+		t)
+			time=$OPTARG
 			;;
 		?)
 			usage
@@ -79,8 +84,9 @@ mkdir $dir
 echo "Creating $dir/run.sh"
 cat <<EOF > "$dir/run.sh"
 #!/bin/bash
-#SBATCH -N 8
-#SBATCH -J 8N-hpl
+#SBATCH -N $nodecount
+#SBATCH -J $nodecount-hpl
+#SBATCH -t $time
 
 module load hpl-2.3-gcc-9.2.0-4ks5uw3
 module load apps openmpi
@@ -88,7 +94,7 @@ module load apps openmpi
 Ns=$(grep Ns HPL.dat | grep -v NBMINs | awk '{print $1}')
 NBs=$(grep NBs HPL.dat | grep -v '# of NBs' | awk '{print $1}')
 echo "========================="
-echo "8 node job"
+echo "$nodecount node job"
 echo "Ns = $N"
 echo "NBs = $NB"
 echo "========================="
